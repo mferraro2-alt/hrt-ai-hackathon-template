@@ -274,7 +274,7 @@ def load_all_leads():
     combined = pd.concat([sf26, enb, sf25], ignore_index=True)
 
     combined = combined[
-        ~combined["Company"].str.lower().apply(
+        ~combined["Company"].str.lower().fillna("").apply(
             lambda c: any(k in c for k in EXCLUDE_COMPANY_KW)
         )
     ].copy()
@@ -344,6 +344,91 @@ st.caption(
     f"ATM SF 2025  ·  ATM SF 2026  ·  ATM ENB 2025  ·  Post-Show Intelligence  ·  "
     f"{datetime.today().strftime('%B %d, %Y')}"
 )
+
+# ── Upload CSV ────────────────────────────────────────────────────────────────
+
+def _normalize_leads(df):
+    col_map = {
+        "first name": "First_Name", "firstname": "First_Name", "first": "First_Name",
+        "last name":  "Last_Name",  "lastname":  "Last_Name",  "last":  "Last_Name",
+        "email":      "Email",      "work email": "Work_Email",
+        "company":    "Company",    "company name": "Company",
+        "city":       "City",       "company city": "City",
+        "job title":  "Job_Title",  "title": "Job_Title",      "position": "Job_Title",
+        "phone":      "Phone",      "work phone": "Phone",
+        "lead type":  "Lead_Type",  "attended": "Lead_Type",
+    }
+    df.columns = [col_map.get(c.strip().lower(), c) for c in df.columns]
+    for col in ["First_Name","Last_Name","Email","Work_Email","Company","City","Job_Title","Phone","Lead_Type"]:
+        if col not in df.columns:
+            df[col] = ""
+    if df["Lead_Type"].str.upper().isin(["YES","NO","TRUE","FALSE"]).any():
+        df["Lead_Type"] = df["Lead_Type"].apply(
+            lambda x: "Event Day Reg" if str(x).strip().upper() in ("YES","TRUE") else "Pre-Registered"
+        )
+    return df[["First_Name","Last_Name","Email","Work_Email","Company","City","Job_Title","Phone","Lead_Type"]]
+
+def _normalize_contacts(df):
+    col_map = {
+        "first name": "First Name", "firstname": "First Name", "first": "First Name",
+        "last name":  "Last Name",  "lastname":  "Last Name",  "last":  "Last Name",
+        "title":      "Title",      "job title": "Title",      "position": "Title",
+        "company":    "Company",    "company name": "Company",
+        "email":      "Email",
+        "office phone": "Office Phone", "phone": "Office Phone", "work phone": "Office Phone",
+        "mobile phone": "Mobile Phone", "mobile": "Mobile Phone",
+        "street address": "Street Address", "address": "Street Address",
+        "city":  "City",
+        "state": "State",
+        "zip":   "Zip",
+        "website": "Website",
+    }
+    df.columns = [col_map.get(c.strip().lower(), c) for c in df.columns]
+    for col in ["First Name","Last Name","Title","Company","Email","Office Phone","Mobile Phone","Street Address","City","State","Zip","Website"]:
+        if col not in df.columns:
+            df[col] = ""
+    return df[["First Name","Last Name","Title","Company","Email","Office Phone","Mobile Phone","Street Address","City","State","Zip","Website"]]
+
+# Show success banner from previous upload (persists across rerun)
+if st.session_state.get("upload_success"):
+    st.success(st.session_state.pop("upload_success"))
+
+with st.expander("📂 Upload a File", expanded=False):
+    upload_type = st.radio("What type of file are you uploading?",
+                           ["Leads List (ATM-style)", "Contacts / Business Cards"],
+                           horizontal=True)
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv", key="csv_upload")
+
+    if uploaded_file:
+        file_id = f"{uploaded_file.name}_{uploaded_file.size}"
+        try:
+            raw = pd.read_csv(uploaded_file)
+            st.caption(f"{len(raw)} rows · {len(raw.columns)} columns detected")
+            st.dataframe(raw.head(5), use_container_width=True, hide_index=True)
+
+            if st.session_state.get("uploaded_file_id") == file_id:
+                st.info("This file has already been added to the dashboard.")
+            elif st.button("➕ Add to Dashboard", type="primary"):
+                if upload_type == "Leads List (ATM-style)":
+                    normalized = _normalize_leads(raw.copy())
+                    existing   = pd.read_csv("data_ai/atm_sf_leads.csv")
+                    merged     = pd.concat([existing, normalized], ignore_index=True)
+                    merged.to_csv("data_ai/atm_sf_leads.csv", index=False)
+                    st.cache_data.clear()
+                    st.session_state["upload_success"] = f"✅ {len(normalized)} lead(s) added to ATM SF 2026!"
+                    st.session_state["uploaded_file_id"] = file_id
+                    st.rerun()
+                else:
+                    normalized = _normalize_contacts(raw.copy())
+                    existing   = pd.read_csv("data_ai/contacts.csv")
+                    merged     = pd.concat([existing, normalized], ignore_index=True)
+                    merged.to_csv("data_ai/contacts.csv", index=False)
+                    st.cache_data.clear()
+                    st.session_state["upload_success"] = f"✅ {len(normalized)} contact(s) added to the dashboard!"
+                    st.session_state["uploaded_file_id"] = file_id
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Could not read file: {e}")
 
 # ── Tier legend ───────────────────────────────────────────────────────────────
 with st.expander("📋 Outreach Tier Guide", expanded=False):

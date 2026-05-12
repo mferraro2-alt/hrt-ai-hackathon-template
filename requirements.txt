@@ -1,2 +1,5 @@
 streamlit
 pandas
+anthropic
+plotly
+numpy
